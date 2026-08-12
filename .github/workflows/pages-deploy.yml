@@ -1,9 +1,9 @@
 name: "Build and Deploy"
 on:
   push:
-    branches:
-      - main
-      - master
+    # 只在打 tag 时部署，main 分支 push 不会触发部署
+    tags:
+      - "v*"
     paths-ignore:
       - .gitignore
       - README.md

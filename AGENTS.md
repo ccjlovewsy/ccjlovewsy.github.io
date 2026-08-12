@@ -51,3 +51,50 @@ gh api repos/ccjlovewsy/ccjlovewsy.github.io/pages
 - Pages source：GitHub Actions
 - 站点：https://ccjlovewsy.github.io/
 - 详细排错、环境重装步骤见 **BLOG-GUIDE.md**
+
+## 部署触发规则（重要变化）
+
+**自 2026-08-12 起，main 分支 push 不再自动部署**。部署只在以下情况触发：
+
+1. 打 tag（格式 `v*`，如 `v1.0`、`v1.1`）：`git tag v1.0 && git push origin v1.0`
+2. 手动触发：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
+3. Actions 页面点 "Run workflow"
+
+### 三种发布场景
+
+**场景 1：私人文章（只提交，不部署，别人看不到）**
+```bash
+# 文章放 _posts/，加 front matter
+git add -A && git commit -m "私人草稿: <标题>"
+git push origin main
+# main 分支 push 不触发部署，线上站点不变
+# 自己用 serve.sh 本地预览
+```
+
+**场景 2：公开发布新文章（部署到线上）**
+```bash
+# 1. 先提交到 main
+git add -A && git commit -m "发布: <标题>"
+git push origin main
+# 2. 打 tag 触发部署
+git tag v1.1   # 版本号递增
+git push origin v1.1
+# 3. 监控部署
+gh run list --repo ccjlovewsy/ccjlovewsy.github.io --limit 1
+```
+
+**场景 3：把多篇文章一起部署**
+```bash
+# 多次 main 提交都先存着不部署，等积累够了打一次 tag
+git push origin main
+# ...继续写...
+git push origin main
+# 准备发布了
+git tag v1.2 && git push origin v1.2
+```
+
+### Tag 版本号约定
+
+- `v1.0`、`v1.1`、`v1.2` ... 递增即可
+- 查看已有 tag：`git tag -l`
+- 删除打错的 tag：`git tag -d v1.0 && git push origin :refs/tags/v1.0`

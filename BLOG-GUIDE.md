@@ -65,6 +65,15 @@ token scopes：`gist, read:org, repo`。
 - 部署工作流：`.github/workflows/pages-deploy.yml`（Chirpy 自带）
 - HTTPS 强制：已开启
 
+### ⚠️ 部署触发规则（2026-08-12 改造后）
+
+**main 分支 push 不再自动部署**。部署触发条件已改为：
+- **打 tag**（`v*` 格式）：`git tag v1.0 && git push origin v1.0`
+- **手动触发**：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
+- **Actions 页面** "Run workflow"
+
+这样设计的目的是支持「私人文章」：提交到 main 不部署，线上站点保持不变，自己用 `serve.sh` 本地预览。要公开发布时再打 tag。
+
 ```bash
 # 查 Pages 配置
 gh api repos/ccjlovewsy/ccjlovewsy.github.io/pages
@@ -138,28 +147,58 @@ exec bundle exec jekyll serve
 
 4. 草稿放 `_drafts/`，本地预览加参数：`bundle exec jekyll serve --drafts`
 
-### 发布流程（标准三步）
+### 发布流程
+
+#### 场景 1：私人文章（只提交不部署，别人看不到）
 
 ```bash
 cd ~/ccjlovewsy.github.io
 
-# 1. 本地构建验证（可选但推荐，避免构建失败导致 Actions 红叉）
+# 写文章到 _posts/（加完整 front matter）
+# main push 不会触发部署
+git add -A
+git commit -m "私人草稿: <标题>"
+git push origin main
+
+# 自己本地预览
+~/ccjlovewsy.github.io/serve.sh   # http://127.0.0.1:4000
+```
+
+#### 场景 2：公开发布（部署到线上）
+
+```bash
+cd ~/ccjlovewsy.github.io
 export PATH="/opt/homebrew/opt/ruby@3.4/bin:/opt/homebrew/lib/ruby/gems/3.4.0/bin:$PATH"
+
+# 1. 本地构建验证
 bundle exec jekyll build    # 无报错即可
 
-# 2. 提交推送
+# 2. 提交到 main
 git add -A
-git commit -m "发布: 文章标题"
-git push origin main        # push 后自动触发 GitHub Actions 部署
+git commit -m "发布: <标题>"
+git push origin main
 
-# 3. 监控部署（约 1~2 分钟）
+# 3. 打 tag 触发部署（tag 号递增）
+git tag v1.1
+git push origin v1.1
+
+# 4. 监控部署（约 1~2 分钟）
 export PATH="/opt/homebrew/bin:$PATH"
-gh run watch                # 看实时日志
-# 或只看状态：
 gh run list --limit 1
 ```
 
 部署 `success` 后，等几秒访问 https://ccjlovewsy.github.io/
+
+#### 场景 3：把多篇文章一起部署
+
+```bash
+# 多次 main 提交先存着不部署
+git push origin main   # 不部署
+# ...继续写...
+git push origin main   # 不部署
+# 准备一起发布了
+git tag v1.2 && git push origin v1.2   # 一次性部署所有累积的文章
+```
 
 ### 常用 gh 命令
 
