@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logging.cpp 源码精读 · 交互页面</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg-panel: #161b22; --bg-elevated: #1f2630; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --text-bright: #f0f6fc;
+    --accent: #58a6ff; --accent-dim: #1f6feb;
+    --level: #f0883e; --tag: #58a6ff; --thread: #d2a8ff; --time: #ffa657;
+    --msg: #7ee787; --eol: #8b949e; --sep: #8b949e;
+    --warn: #f85149; --ok: #3fb950;
+    --code-bg: #0d1117; --current-line: #2d333b; --current-line-bar: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px; line-height: 1.5;
+    display: flex; flex-direction: column;
+  }
+  header {
+    background: var(--bg-panel); border-bottom: 1px solid var(--border);
+    padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+  }
+  header h1 { font-size: 14px; font-weight: 600; color: var(--text-bright); white-space: nowrap; }
+  header h1 .file { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .scene-indicator { color: var(--text-dim); font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .scene-indicator b { color: var(--text-bright); }
+  .scene-progress {
+    flex: 1; height: 6px; background: var(--bg-elevated); border-radius: 3px;
+    position: relative; cursor: pointer; overflow: hidden;
+  }
+  .scene-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); width: 0%; }
+  .scene-marker { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--border); }
+  .scene-marker.active { background: var(--accent); }
+  main {
+    flex: 1; display: flex; background: var(--border); overflow: hidden;
+  }
+  .panel { background: var(--bg-panel); overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
+  .panel.source-panel { flex: 1 1 0; min-width: 280px; }
+  .panel.anim-panel    { flex: 1.3 1 0; min-width: 360px; }
+  .panel.narr-panel   { flex: 0.9 1 0; min-width: 240px; }
+  .panel-divider {
+    width: 4px; background: var(--border); cursor: col-resize;
+    flex-shrink: 0; position: relative; transition: background 0.15s;
+  }
+  .panel-divider:hover, .panel-divider.dragging { background: var(--accent); }
+  .panel-header {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-elevated); flex-shrink: 0;
+  }
+  .panel-title { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .panel-meta { font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+  .source-body {
+    flex: 1; overflow: auto; background: var(--code-bg); padding: 8px 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.55;
+  }
+  .source-body::-webkit-scrollbar { width: 10px; height: 10px; }
+  .source-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+  .source-line {
+    display: block; padding: 0 12px 0 48px; position: relative; white-space: pre;
+    color: #c9d1d9; min-height: 1.55em;
+  }
+  .source-line .ln {
+    position: absolute; left: 0; top: 0; width: 38px; text-align: right;
+    color: var(--text-dim); opacity: 0.6; user-select: none; padding-right: 10px;
+    border-right: 1px solid var(--border);
+  }
+  .source-line.current { background: var(--current-line); }
+  .source-line.current::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--current-line-bar);
+  }
+  .source-line .ln.current-ln { color: var(--accent); opacity: 1; font-weight: 600; }
+  .kw { color: #ff7b72; } .ty { color: #ffa657; } .fn { color: #d2a8ff; }
+  .str { color: #a5d6ff; } .num { color: #79c0ff; }
+  .cm { color: #8b949e; font-style: italic; } .pp { color: #f0883e; } .ns { color: #7ee787; }
+  .anim-body {
+    flex: 1; position: relative; overflow: hidden;
+    display: flex; align-items: stretch; justify-content: stretch; padding: 16px;
+  }
+  #animCanvas { display: block; background: #0a0e14; border-radius: 6px; width: 100%; height: 100%; }
+  .anim-scene-title {
+    position: absolute; top: 12px; left: 16px; font-size: 12px; color: var(--text-dim);
+    font-family: ui-monospace, monospace;
+  }
+  .anim-scene-title b { color: var(--text-bright); }
+  .anim-progress {
+    position: absolute; bottom: 12px; left: 16px; right: 16px; height: 3px;
+    background: var(--bg-elevated); border-radius: 2px; overflow: hidden;
+  }
+  .anim-progress-fill { height: 100%; background: var(--accent); width: 0%; }
+  .narr-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .narr-body::-webkit-scrollbar { width: 8px; }
+  .narr-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .narr-scene-title {
+    font-size: 14px; font-weight: 600; color: var(--text-bright);
+    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .narr-item {
+    margin-bottom: 16px; padding: 10px 12px; background: var(--bg-elevated);
+    border-left: 3px solid transparent; border-radius: 0 4px 4px 0;
+    transition: border-color 0.3s, background 0.3s, opacity 0.3s; opacity: 0.5;
+  }
+  .narr-item.active { border-left-color: var(--accent); opacity: 1; background: var(--bg-panel); }
+  .narr-item.warn { border-left-color: var(--warn); background: rgba(248, 81, 73, 0.08); }
+  .narr-item.warn .narr-text { color: #ffb1ab; }
+  .narr-time { font-size: 10px; color: var(--text-dim); font-family: ui-monospace, monospace; margin-bottom: 4px; }
+  .narr-text { font-size: 13px; color: var(--text); line-height: 1.6; }
+  .narr-text code {
+    font-family: ui-monospace, monospace; background: var(--code-bg);
+    padding: 1px 5px; border-radius: 3px; font-size: 12px; color: var(--msg);
+  }
+  footer {
+    background: var(--bg-panel); border-top: 1px solid var(--border);
+    padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .footer-left { flex: 1; display: flex; align-items: center; gap: 12px; }
+  .footer-center { display: flex; align-items: center; gap: 12px; }
+  .footer-right { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+  .ctrl-btn {
+    background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text);
+    width: 32px; height: 32px; border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+    transition: all 0.15s;
+  }
+  .ctrl-btn:hover { background: var(--border); color: var(--text-bright); }
+  .ctrl-btn.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: white; width: 40px; }
+  .ctrl-btn.primary:hover { background: var(--accent); }
+  .ctrl-divider { width: 1px; height: 22px; background: var(--border); }
+  .time-display { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-dim); min-width: 80px; }
+  .time-display .cur { color: var(--text-bright); }
+  .speed-control { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .speed-label { font-size: 11px; color: var(--text-dim); }
+  .speed-slider {
+    width: 100px; -webkit-appearance: none; appearance: none; height: 4px;
+    background: var(--bg-elevated); border-radius: 2px; outline: none;
+  }
+  .speed-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: var(--accent); border-radius: 50%; cursor: pointer;
+  }
+  .speed-value { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-bright); min-width: 36px; }
+
+  /* === 开场覆盖层 === */
+  .intro-overlay {
+    position: fixed; inset: 0; background: #0d1117; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.6s ease; cursor: pointer;
+  }
+  .intro-overlay.fading { opacity: 0; pointer-events: none; }
+  .intro-overlay.hidden { display: none; }
+  .intro-title {
+    font-size: 28px; font-weight: 600; color: var(--text-bright); margin-bottom: 8px;
+  }
+  .intro-subtitle {
+    font-size: 14px; color: var(--text-dim); margin-bottom: 40px; font-family: ui-monospace, monospace;
+  }
+  .intro-subtitle .file { color: var(--accent); }
+  .intro-graph { width: 720px; height: 340px; }
+  .intro-hint {
+    margin-top: 24px; font-size: 12px; color: var(--text-dim);
+    font-family: ui-monospace, monospace; animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+  /* === Toast === */
+  .toast-container {
+    position: fixed; top: 60px; right: 20px; z-index: 500;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .toast {
+    background: rgba(27, 31, 38, 0.95); border: 1px solid var(--warn);
+    border-left: 4px solid var(--warn); border-radius: 4px;
+    padding: 10px 14px; min-width: 280px; max-width: 360px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    opacity: 0; transform: translateX(20px);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast-title { font-size: 13px; font-weight: 600; color: var(--warn); margin-bottom: 4px; }
+  .toast-body { font-size: 12px; color: #ffb1ab; line-height: 1.5; }
+  .toast-body code { font-family: ui-monospace, monospace; background: rgba(248, 81, 73, 0.15); padding: 1px 4px; border-radius: 2px; }
+
+  /* === Scene 切换过渡 === */
+  .panel.transitioning .source-body,
+  .panel.transitioning .narr-body,
+  .panel.transitioning .anim-body { opacity: 0.3; transition: opacity 0.3s; }
+  .anim-body, .source-body, .narr-body { transition: opacity 0.3s; }
+</style>
+</head>
+<body>
+
+<!-- 开场覆盖层 -->
+<div class="intro-overlay" id="introOverlay">
+  <div class="intro-title">Logging 框架层源码精读</div>
+  <div class="intro-subtitle"><span class="file">Logging.cpp / Logging.hpp</span> · runtime/src/main/cpp/</div>
+  <svg class="intro-graph" viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg">
+    <!-- 中心节点 -->
+    <rect x="290" y="150" width="140" height="40" rx="4" fill="#1f6feb" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="360" y="174" fill="#f0f6fc" font-size="13" text-anchor="middle" font-family="ui-monospace">Logging.hpp</text>
+    <text x="360" y="205" fill="#8b949e" font-size="10" text-anchor="middle" font-family="ui-monospace">日志框架根</text>
+
+    <!-- 依赖箭头线 -->
+    <g stroke="#30363d" stroke-width="1" fill="none" stroke-dasharray="3,2">
+      <line x1="360" y1="150" x2="120" y2="60"/>
+      <line x1="360" y1="150" x2="240" y2="60"/>
+      <line x1="360" y1="150" x2="360" y2="60"/>
+      <line x1="360" y1="150" x2="480" y2="60"/>
+      <line x1="360" y1="150" x2="600" y2="60"/>
+      <line x1="360" y1="190" x2="120" y2="280"/>
+      <line x1="360" y1="190" x2="240" y2="280"/>
+      <line x1="360" y1="190" x2="360" y2="280"/>
+      <line x1="360" y1="190" x2="480" y2="280"/>
+      <line x1="360" y1="190" x2="600" y2="280"/>
+    </g>
+
+    <!-- 上层依赖模块 -->
+    <g font-family="ui-monospace" font-size="11" text-anchor="middle">
+      <rect x="70" y="40" width="100" height="28" rx="3" fill="#161b22" stroke="#58a6ff"/><text x="120" y="58" fill="#58a6ff">GC</text>
+      <rect x="190" y="40" width="100" height="28" rx="3" fill="#161b22" stroke="#d2a8ff"/><text x="240" y="58" fill="#d2a8ff">MM</text>
+      <rect x="310" y="40" width="100" height="28" rx="3" fill="#161b22" stroke="#7ee787"/><text x="360" y="58" fill="#7ee787">TLS</text>
+      <rect x="430" y="40" width="100" height="28" rx="3" fill="#161b22" stroke="#f0883e"/><text x="480" y="58" fill="#f0883e">Alloc</text>
+      <rect x="550" y="40" width="100" height="28" rx="3" fill="#161b22" stroke="#ffa657"/><text x="600" y="58" fill="#ffa657">GCMark</text>
+    </g>
+    <!-- 下层依赖模块 -->
+    <g font-family="ui-monospace" font-size="11" text-anchor="middle">
+      <rect x="70" y="270" width="100" height="28" rx="3" fill="#161b22" stroke="#58a6ff"/><text x="120" y="288" fill="#58a6ff">Barriers</text>
+      <rect x="190" y="270" width="100" height="28" rx="3" fill="#161b22" stroke="#d2a8ff"/><text x="240" y="288" fill="#d2a8ff">Scheduler</text>
+      <rect x="310" y="270" width="100" height="28" rx="3" fill="#161b22" stroke="#7ee787"/><text x="360" y="288" fill="#7ee787">MemoryDump</text>
+      <rect x="430" y="270" width="100" height="28" rx="3" fill="#161b22" stroke="#f0883e"/><text x="480" y="288" fill="#f0883e">RT</text>
+      <rect x="550" y="270" width="100" height="28" rx="3" fill="#161b22" stroke="#ffa657"/><text x="600" y="288" fill="#ffa657">Pause</text>
+    </g>
+
+    <!-- 注解 -->
+    <text x="360" y="320" fill="#8b949e" font-size="10" text-anchor="middle" font-family="ui-monospace">所有 runtime 模块都 #include "Logging.hpp"</text>
+  </svg>
+  <div class="intro-hint">点击任意位置或按空格开始 ▶</div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toastContainer"></div>
+
+<header>
+  <h1>源码精读 · <span class="file">Logging.cpp / Logging.hpp</span></h1>
+  <div class="scene-indicator">Scene <b id="sceneNum">1</b> / 8 · <b id="sceneTitle">一条日志的诞生</b></div>
+  <div class="scene-progress" id="sceneProgress">
+    <div class="scene-progress-fill" id="progressFill"></div>
+    <div id="progressMarkers"></div>
+  </div>
+</header>
+
+<main>
+  <section class="panel source-panel">
+    <div class="panel-header">
+      <div class="panel-title">源码</div>
+      <div class="panel-meta" id="sourceMeta">Logging.cpp:64-82</div>
+    </div>
+    <div class="source-body" id="sourceBody"></div>
+  </section>
+  <div class="panel-divider" id="divider1"></div>
+  <section class="panel anim-panel">
+    <div class="panel-header">
+      <div class="panel-title">动画</div>
+      <div class="panel-meta" id="animMeta">bufferFill</div>
+    </div>
+    <div class="anim-body">
+      <div class="anim-scene-title" id="animSceneTitle">Scene 1 · <b>一条日志的诞生</b></div>
+      <canvas id="animCanvas" width="640" height="420"></canvas>
+      <div class="anim-progress"><div class="anim-progress-fill" id="animProgressFill"></div></div>
+    </div>
+  </section>
+  <div class="panel-divider" id="divider2"></div>
+  <section class="panel narr-panel">
+    <div class="panel-header">
+      <div class="panel-title">讲解</div>
+      <div class="panel-meta">逐帧字幕</div>
+    </div>
+    <div class="narr-body" id="narrBody"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-left">
+    <div class="time-display"><span class="cur" id="curTime">0.0s</span> / <span id="totalTime">145.0s</span></div>
+  </div>
+  <div class="footer-center">
+    <button class="ctrl-btn" id="btnPrev" title="上一场景">⏮</button>
+    <button class="ctrl-btn primary" id="btnPlay" title="播放/暂停">▶</button>
+    <button class="ctrl-btn" id="btnNext" title="下一场景">⏭</button>
+    <div class="ctrl-divider"></div>
+    <button class="ctrl-btn" id="btnStepBack" title="上一帧">⏪</button>
+    <button class="ctrl-btn" id="btnStepFwd" title="下一帧 (逐句)">⏩</button>
+  </div>
+  <div class="footer-right">
+    <span class="speed-label">速度</span>
+    <input type="range" class="speed-slider" id="speedSlider" min="0.25" max="2" step="0.25" value="1">
+    <span class="speed-value" id="speedValue">1.00x</span>
+  </div>
+</footer>
+
+<script>
+"use strict";
+
+// === 源码内容 (内嵌, 不依赖网络) ===
+const SOURCE_FILES = {
+  "Logging.cpp": [
+    { n: 23, t: '<span class="kw">class</span> <span class="ty">StderrLogger</span> : <span class="kw">public</span> <span class="ns">logging::internal</span>::<span class="ty">Logger</span> {' },
+    { n: 25, t: '    <span class="kw">void</span> <span class="fn">Log</span>(<span class="ns">logging</span>::<span class="ty">Level</span> level, <span class="ty">std::string_view</span> message) <span class="kw">const</span> <span class="kw">noexcept</span> <span class="kw">override</span> {' },
+    { n: 26, t: '        <span class="ns">konan</span>::<span class="fn">consoleErrorUtf8</span>(message.data(), message.size());' },
+    { n: 28, t: '};' },
+    { n: 30, t: '<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; <span class="fn">FormatLevel</span>(..., <span class="ns">logging</span>::<span class="ty">Level</span> level) <span class="kw">noexcept</span> {' },
+    { n: 31, t: '    <span class="kw">return</span> <span class="fn">FormatToSpan</span>(buffer, <span class="str">"[%s]"</span>, <span class="ns">logging::internal</span>::<span class="fn">name</span>(level));' },
+    { n: 32, t: '}' },
+    { n: 34, t: '<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; <span class="fn">FormatTags</span>(..., <span class="ty">span</span>&lt;<span class="kw">const</span> <span class="ns">logging</span>::<span class="ty">Tag</span>&gt; tags) <span class="kw">noexcept</span> {' },
+    { n: 36, t: '    <span class="kw">auto</span> firstTag = tags.<span class="fn">front</span>();' },
+    { n: 37, t: '    buffer = <span class="fn">FormatToSpan</span>(buffer, <span class="str">"[%s"</span>, <span class="ns">logging::internal</span>::<span class="fn">name</span>(firstTag));' },
+    { n: 38, t: '    <span class="kw">for</span> (<span class="kw">auto</span> tag : tags.<span class="fn">subspan</span>(1)) {' },
+    { n: 39, t: '        buffer = <span class="fn">FormatToSpan</span>(buffer, <span class="str">",%s"</span>, <span class="ns">logging::internal</span>::<span class="fn">name</span>(tag));' },
+    { n: 41, t: '    <span class="kw">return</span> <span class="fn">FormatToSpan</span>(buffer, <span class="str">"]"</span>);' },
+    { n: 42, t: '}' },
+    { n: 44, t: '<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; <span class="fn">FormatTimestamp</span>(..., <span class="ns">kotlin</span>::<span class="ty">nanoseconds</span> timestamp) <span class="kw">noexcept</span> {' },
+    { n: 45, t: '    <span class="kw">auto</span> s = <span class="kw">static_cast</span>&lt;<span class="kw">double</span>&gt;(timestamp.<span class="fn">count</span>().value) / <span class="num">1000000000</span>;' },
+    { n: 46, t: '    <span class="kw">return</span> <span class="fn">FormatToSpan</span>(buffer, <span class="str">"[%.3fs]"</span>, s);' },
+    { n: 47, t: '}' },
+    { n: 49, t: '<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; <span class="fn">FormatThread</span>(..., <span class="kw">int</span> threadId) <span class="kw">noexcept</span> {' },
+    { n: 50, t: '    <span class="kw">return</span> <span class="fn">FormatToSpan</span>(buffer, <span class="str">"[tid#%d]"</span>, threadId);' },
+    { n: 51, t: '}' },
+    { n: 53, t: '<span class="kw">struct</span> <span class="ty">DefaultLogContext</span> {' },
+    { n: 54, t: '    <span class="ty">StderrLogger</span> logger;' },
+    { n: 55, t: '    <span class="ns">kotlin</span>::<span class="ty">steady_clock</span>::<span class="ty">time_point</span> initialTimestamp = <span class="ns">kotlin</span>::<span class="ty">steady_clock</span>::<span class="fn">now</span>();' },
+    { n: 56, t: '};' },
+    { n: 64, t: '<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; <span class="fn">FormatLogEntry</span>(<span class="ty">span</span>&lt;<span class="kw">char</span>&gt; buffer, <span class="ns">logging</span>::<span class="ty">Level</span> level, <span class="ty">span</span>&lt;<span class="kw">const</span> <span class="ns">logging</span>::<span class="ty">Tag</span>&gt; tags, <span class="kw">int</span> threadId, <span class="ns">kotlin</span>::<span class="ty">nanoseconds</span> timestamp, <span class="kw">const</span> <span class="kw">char</span>* format, <span class="ty">std::va_list</span> args) <span class="kw">noexcept</span> {' },
+    { n: 72, t: '    subbuffer = <span class="fn">FormatLevel</span>(subbuffer, level);          <span class="cm">// [INFO]</span>' },
+    { n: 73, t: '    subbuffer = <span class="fn">FormatTags</span>(subbuffer, tags);              <span class="cm">// [alloc]</span>' },
+    { n: 74, t: '    subbuffer = <span class="fn">FormatThread</span>(subbuffer, threadId);      <span class="cm">// [tid#787430]</span>' },
+    { n: 75, t: '    subbuffer = <span class="fn">FormatTimestamp</span>(subbuffer, timestamp);  <span class="cm">// [0.002s]</span>' },
+    { n: 76, t: '    subbuffer = <span class="fn">FormatToSpan</span>(subbuffer, <span class="str">" "</span>);              <span class="cm">// 分隔空格</span>' },
+    { n: 77, t: '    subbuffer = <span class="fn">VFormatToSpan</span>(subbuffer, format, args);   <span class="cm">// 消息体</span>' },
+    { n: 80, t: '    buffer = <span class="fn">FormatToSpan</span>(buffer, <span class="str">"\\n"</span>);                  <span class="cm">// 行尾换行</span>' },
+    { n: 81, t: '    <span class="kw">return</span> buffer;' },
+    { n: 82, t: '}' },
+    { n: 84, t: '<span class="kw">void</span> <span class="ns">logging::internal</span>::<span class="fn">Log</span>(<span class="kw">const</span> <span class="ty">Logger</span>& logger, <span class="ns">logging</span>::<span class="ty">Level</span> level, ...) <span class="kw">noexcept</span> {' },
+    { n: 92, t: '    <span class="fn">RuntimeAssert</span>(<span class="fn">enabled</span>(level, tags, <span class="ns">compiler</span>::<span class="fn">runtimeLogs</span>()), <span class="str">"..."</span>);' },
+    { n: 94, t: '    <span class="ty">std::array</span>&lt;<span class="kw">char</span>, <span class="num">1024</span>&gt; logEntry;  <span class="cm">// ← 1024 字节固定缓冲区</span>' },
+    { n: 95, t: '    <span class="kw">auto</span> rest = <span class="fn">FormatLogEntry</span>(logEntry, level, tags, threadId, timestamp, format, args);' },
+    { n: 96, t: '    logger.<span class="fn">Log</span>(level, tags, <span class="ty">std::string_view</span>(logEntry.data(), rest.data() - logEntry.data()));' },
+    { n: 97, t: '}' },
+    { n: 99, t: '<span class="kw">void</span> <span class="ns">logging</span>::<span class="fn">OnRuntimeInit</span>() <span class="kw">noexcept</span> {' },
+    { n: 100, t: '    <span class="kw">if</span> (<span class="ns">internal</span>::<span class="fn">enabled</span>(<span class="ty">Level</span>::kInfo, {<span class="ty">Tag</span>::kLogging})) {' },
+    { n: 104, t: '        <span class="kw">for</span> (<span class="kw">size_t</span> tagOrd = <span class="num">0</span>; tagOrd &lt; <span class="ty">Tag</span>::kEnumSize; ++tagOrd) {' },
+    { n: 106, t: '            <span class="kw">auto</span> maxLevel = <span class="ns">internal</span>::<span class="fn">maxLevel</span>(tag, <span class="ns">compiler</span>::<span class="fn">runtimeLogs</span>());' },
+    { n: 107, t: '            <span class="kw">if</span> (maxLevel &gt; <span class="ty">Level</span>::kNone) {  <span class="cm">// 只列出启用的</span>' },
+    { n: 112, t: '                span = <span class="fn">FormatToSpan</span>(span, <span class="str">"%s = %s"</span>, <span class="ns">internal</span>::<span class="fn">name</span>(tag), <span class="ns">internal</span>::<span class="fn">name</span>(maxLevel));' },
+    { n: 116, t: '        <span class="fn">Log</span>(<span class="ty">Level</span>::kInfo, {<span class="ns">logging</span>::<span class="ty">Tag</span>::kLogging}, <span class="str">"Logging enabled for: %s"</span>, buf.data());' },
+    { n: 118, t: '}' },
+    { n: 127, t: '<span class="kw">void</span> <span class="ns">logging</span>::<span class="fn">VLog</span>(<span class="ns">logging</span>::<span class="ty">Level</span> level, <span class="ty">std::initializer_list</span>&lt;<span class="ns">logging</span>::<span class="ty">Tag</span>&gt; tags, <span class="kw">const</span> <span class="kw">char</span>* format, <span class="ty">std::va_list</span> args) <span class="kw">noexcept</span> {' },
+    { n: 130, t: '    [[<span class="ns">clang</span>::<span class="ty">no_destroy</span>]] <span class="kw">static</span> <span class="ty">DefaultLogContext</span> ctx;  <span class="cm">// ← 懒初始化零点</span>' },
+    { n: 133, t: '    <span class="kw">auto</span> threadId = <span class="ns">konan</span>::<span class="fn">currentThreadId</span>();' },
+    { n: 134, t: '    <span class="kw">auto</span> timestamp = <span class="ns">kotlin</span>::<span class="ty">steady_clock</span>::<span class="fn">now</span>();' },
+    { n: 135, t: '    <span class="ns">internal</span>::<span class="fn">Log</span>(ctx.logger, level, tagsSpan, threadId, timestamp - ctx.initialTimestamp, format, args);' },
+    { n: 136, t: '}' },
+  ],
+  "Logging.hpp": [
+    { n: 22, t: '<span class="kw">enum class</span> <span class="ty">Level</span> : <span class="ty">int32_t</span> {' },
+    { n: 23, t: '    <span class="ty">kNone</span>    = <span class="num">0</span>,' },
+    { n: 24, t: '    <span class="ty">kError</span>   = <span class="num">1</span>,' },
+    { n: 25, t: '    <span class="ty">kWarning</span> = <span class="num">2</span>,' },
+    { n: 26, t: '    <span class="ty">kInfo</span>    = <span class="num">3</span>,' },
+    { n: 27, t: '    <span class="ty">kDebug</span>   = <span class="num">4</span>,' },
+    { n: 28, t: '};' },
+    { n: 31, t: '<span class="kw">enum class</span> <span class="ty">Tag</span> : <span class="ty">int32_t</span> {' },
+    { n: 32, t: '    <span class="ty">kLogging</span>=<span class="num">0</span>, <span class="ty">kRT</span>=<span class="num">1</span>, <span class="ty">kGC</span>=<span class="num">2</span>, <span class="ty">kMM</span>=<span class="num">3</span>, <span class="ty">kTLS</span>=<span class="num">4</span>, <span class="ty">kPause</span>=<span class="num">5</span>,' },
+    { n: 33, t: '    <span class="ty">kAlloc</span>=<span class="num">6</span>, <span class="ty">kBalancing</span>=<span class="num">7</span>, <span class="ty">kBarriers</span>=<span class="num">8</span>, <span class="ty">kGCMark</span>=<span class="num">9</span>,' },
+    { n: 34, t: '    <span class="ty">kGCScheduler</span>=<span class="num">10</span>, <span class="ty">kMemoryDump</span>=<span class="num">11</span>, <span class="ty">kEnumSize</span>=<span class="num">12</span>' },
+    { n: 46, t: '};' },
+    { n: 84, t: '<span class="kw">inline</span> <span class="kw">bool</span> <span class="fn">enabled</span>(<span class="ns">logging</span>::<span class="ty">Level</span> level, <span class="ty">span</span>&lt;<span class="kw">const</span> <span class="ns">logging</span>::<span class="ty">Tag</span>&gt; tags, <span class="kw">const</span> <span class="ty">int32_t</span> logLevels[]) {' },
+    { n: 85, t: '    <span class="kw">for</span> (<span class="kw">auto</span> tag: tags) {' },
+    { n: 86, t: '        <span class="kw">if</span> (level &lt;= <span class="fn">maxLevel</span>(tag, logLevels)) {  <span class="cm">// 关键: &lt;=</span>' },
+    { n: 87, t: '            <span class="kw">return</span> <span class="kw">true</span>;' },
+    { n: 90, t: '    <span class="kw">return</span> <span class="kw">false</span>;' },
+    { n: 91, t: '}' },
+    { n: 149, t: '<span class="pp">#define</span> <span class="fn">RuntimeLog</span>(level, ...) \\' },
+    { n: 150, t: '    <span class="kw">do</span> { \\' },
+    { n: 151, t: '        <span class="kw">if</span> (<span class="fn">enabled</span>(level, ##__VA_ARGS__)) { \\' },
+    { n: 152, t: '            <span class="fn">Log</span>(level, ##__VA_ARGS__); \\' },
+    { n: 154, t: '    } <span class="kw">while</span> (<span class="kw">false</span>)' },
+    { n: 156, t: '<span class="pp">#define</span> <span class="fn">RuntimeLogDebug</span>(...) <span class="fn">RuntimeLog</span>(<span class="ty">Level</span>::kDebug, ##__VA_ARGS__)' },
+    { n: 157, t: '<span class="pp">#define</span> <span class="fn">RuntimeLogInfo</span>(...) <span class="fn">RuntimeLog</span>(<span class="ty">Level</span>::kInfo, ##__VA_ARGS__)' },
+  ],
+  "Porting.cpp": [
+    { n: 260, t: '<span class="cm">// We can\'t use gettid from glibc 2.30 because it is too new for us.</span>' },
+    { n: 262, t: '<span class="ty">NO_EXTERNAL_CALLS_CHECK</span> <span class="kw">int</span> <span class="fn">gettid</span>() {' },
+    { n: 263, t: '    <span class="kw">return</span> <span class="kw">static_cast</span>&lt;<span class="kw">int</span>&gt;(<span class="fn">syscall</span>(<span class="ty">__NR_gettid</span>));' },
+    { n: 264, t: '}' },
+    { n: 267, t: '<span class="ty">uintptr_t</span> <span class="fn">currentThreadId</span>() {' },
+    { n: 271, t: '    <span class="ns">RuntimeCheck</span>(!<span class="fn">pthread_threadid_np</span>(self, &tid), <span class="str">"..."</span>);' },
+    { n: 277, t: '    <span class="kw">return</span> <span class="fn">gettid</span>();  <span class="cm">// Android</span>' },
+    { n: 279, t: '<span class="pp">#elif KONAN_LINUX || KONAN_OHOS</span>' },
+    { n: 280, t: '    <span class="kw">return</span> <span class="fn">gettid</span>();  <span class="cm">// OHOS/Linux</span>' },
+    { n: 283, t: '  <span class="kw">return</span> <span class="fn">GetCurrentThreadId</span>();  <span class="cm">// Windows</span>' },
+    { n: 285, t: '<span class="pp">#error</span> <span class="str">"How to find currentThreadId()?"</span>' },
+    { n: 287, t: '}' },
+  ]
+};
+
+// === 时间轴: 8 个 Scene ===
+const TIMELINE = {
+  scenes: [
+    { id: "s1", title: "一条日志的诞生", start: 0, duration: 25,
+      source: { file: "Logging.cpp", lines: [64, 82] },
+      keyframes: [0, 4, 8, 12, 16, 18, 20, 24],
+      anim: { type: "bufferFill" },
+      narration: [
+        { t: 0, text: "<code>FormatLogEntry</code> 是单条日志的组装入口。它把 Level/Tag/Thread/Timestamp/消息体按固定顺序拼到 1024 字节缓冲区里。" },
+        { t: 4, text: "第 1 步 <code>FormatLevel</code> 写入 <code>[INFO]</code>，来自 <code>name(Level)</code> 大写输出。" },
+        { t: 8, text: "第 2 步 <code>FormatTags</code> 写入 <code>[alloc]</code>，来自 <code>name(Tag)</code> 小写输出。" },
+        { t: 12, text: "第 3 步 <code>FormatThread</code> 写入 <code>[tid#787430]</code>，threadId 参数来自 VLog。" },
+        { t: 16, text: "第 4 步 <code>FormatTimestamp</code> 写入 <code>[0.002s]</code>，纳秒转秒 + <code>%.3f</code> 三位小数。" },
+        { t: 18, text: "第 5 步写入空格分隔前缀和消息体。" },
+        { t: 20, text: "第 6 步 <code>VFormatToSpan</code> 写入消息体，例如 <code>FixedBlockPage::Create(3)</code>。" },
+        { t: 24, text: "最后写入 <code>\\n</code>。最终: <code>[INFO][alloc][tid#787430][0.002s] FixedBlockPage::Create(3)</code>" },
+      ]
+    },
+    { id: "s2", title: "多 tag 拼接", start: 25, duration: 15,
+      source: { file: "Logging.cpp", lines: [34, 42] },
+      keyframes: [0, 4, 8, 12],
+      anim: { type: "tagConcat" },
+      narration: [
+        { t: 0, text: "<code>FormatTags</code> 处理多 tag 场景，例如 <code>[gc,gcScheduler]</code>。" },
+        { t: 4, text: "首个 tag 用 <code>[%s</code> 格式，<b>不带逗号</b>。" },
+        { t: 8, text: "后续 tag 用 <code>,%s</code> 格式追加，用 <code>subspan(1)</code> 跳过首个。" },
+        { t: 12, text: "末尾补 <code>]</code>。文档 5.11: 双 tag 任一启用即输出。" },
+      ]
+    },
+    { id: "s3", title: "Level 判定", start: 40, duration: 20,
+      source: { file: "Logging.hpp", lines: [84, 91] },
+      keyframes: [0, 5, 10, 15],
+      anim: { type: "levelCompare" },
+      narration: [
+        { t: 0, text: "<code>enabled()</code> 判定日志是否输出。Level 数值越大越详细: kNone=0, kError=1, kWarning=2, kInfo=3, kDebug=4。" },
+        { t: 5, text: "判定逻辑: <code>level &lt;= maxLevel</code>。消息 level ≤ 该 tag 配置的 maxLevel 才输出。" },
+        { t: 10, text: "配置 kInfo(3): kDebug(4)≤3 不成立 → Debug 不输出; kInfo(3)≤3 成立 → Info 输出。" },
+        { t: 15, text: "多 tag 场景: for 循环遍历，任一 tag 满足即 return true。这是 <code>[gc,gcScheduler]</code> 双 tag 的基础。" },
+      ]
+    },
+    { id: "s4", title: "1024 字节缓冲区与截断", start: 60, duration: 15,
+      source: { file: "Logging.cpp", lines: [94, 97] },
+      keyframes: [0, 5, 10],
+      anim: { type: "bufferOverflow" },
+      narration: [
+        { t: 0, text: "<code>std::array&lt;char, 1024&gt; logEntry</code> 是栈上固定 1024 字节缓冲区。" },
+        { t: 5, text: "<code>FormatToSpan</code> 用 subspan 推进游标，溢出时停下——超长消息被截断而非崩溃。" },
+        { t: 10, text: "<b>无截断标记</b>。GCMark=Debug 实测可产生 6442 万行/3.5GB 日志，单条却可能被默默截断。", warn: true },
+      ]
+    },
+    { id: "s5", title: "RuntimeLog 宏的惰性求值", start: 75, duration: 18,
+      source: { file: "Logging.hpp", lines: [149, 157] },
+      keyframes: [0, 6, 12],
+      anim: { type: "lazyEval" },
+      narration: [
+        { t: 0, text: "<code>RuntimeLog</code> 宏: 先 <code>enabled()</code> 检查，再调 <code>Log()</code>。" },
+        { t: 6, text: "日志关闭时: <code>enabled()</code> 返回 false → <code>format</code> 参数里的重计算(如 <code>obj-&gt;toString()</code>) <b>不被求值</b>。" },
+        { t: 12, text: "这是关键性能保证: 即使开了 GCMark=Debug，关闭的 tag 也不会产生参数计算开销。" },
+      ]
+    },
+    { id: "s6", title: "OnRuntimeInit 启动样本", start: 93, duration: 22,
+      source: { file: "Logging.cpp", lines: [99, 118] },
+      keyframes: [0, 5, 10, 15, 20],
+      anim: { type: "tagLoop" },
+      narration: [
+        { t: 0, text: "<code>OnRuntimeInit</code> 是进程启动时打印生效配置的入口。" },
+        { t: 5, text: "遍历 12 个 tag (kEnumSize=12)，对每个调用 <code>maxLevel()</code>。" },
+        { t: 10, text: "只列 <code>maxLevel &gt; kNone</code> 的——未出现的 tag 实际为 None。" },
+        { t: 15, text: "格式 <code>tag = LEVEL</code>: 小写 tag、大写 level，例如 <code>gc = DEBUG</code>。" },
+        { t: 20, text: "最终输出: <code>Logging enabled for: logging = INFO, rt = DEBUG, gc = DEBUG, ...</code>" },
+      ]
+    },
+    { id: "s7", title: "tid 的来源", start: 115, duration: 15,
+      source: { file: "Porting.cpp", lines: [260, 287] },
+      keyframes: [0, 5, 10],
+      anim: { type: "callChain" },
+      narration: [
+        { t: 0, text: "<code>[tid#N]</code> 的 N 来自 <code>Logging.cpp:133</code> 的 <code>konan::currentThreadId()</code>。" },
+        { t: 5, text: "跨文件调用到 <code>Porting.cpp:267</code>。OHOS/Linux 走 <code>gettid()</code>。" },
+        { t: 10, text: "<code>gettid()</code> 是自己实现的 <code>syscall(__NR_gettid)</code>，注释说 \"glibc 2.30 太新了\"。" },
+      ]
+    },
+    { id: "s8", title: "时间零点", start: 130, duration: 15,
+      source: { file: "Logging.cpp", lines: [53, 56] },
+      keyframes: [0, 5, 10],
+      anim: { type: "clockInit" },
+      narration: [
+        { t: 0, text: "<code>DefaultLogContext::initialTimestamp</code> 在首次 <code>VLog</code> 时取 <code>steady_clock::now()</code> 作为零点。" },
+        { t: 5, text: "后续每次 <code>timestamp - ctx.initialTimestamp</code> 得到相对纳秒。steady_clock 不受系统时间校准影响。" },
+        { t: 10, text: "<code>%.3f</code> 截到毫秒。首条日志(OnRuntimeInit)必为 <code>0.000s</code>，因为它自己就是零点。" },
+      ]
+    },
+  ]
+};
+const TOTAL_DURATION = 145;
+
+// === 状态 ===
+let currentTime = 0, isPlaying = false, speed = 1.0, lastFrameTime = 0, currentSceneIndex = -1;
+
+// === DOM 引用 ===
+const sourceBody = document.getElementById("sourceBody");
+const sourceMeta = document.getElementById("sourceMeta");
+const narrBody = document.getElementById("narrBody");
+const animMeta = document.getElementById("animMeta");
+const animSceneTitle = document.getElementById("animSceneTitle");
+const sceneNumEl = document.getElementById("sceneNum");
+const sceneTitleEl = document.getElementById("sceneTitle");
+const progressFill = document.getElementById("progressFill");
+const progressMarkers = document.getElementById("progressMarkers");
+const animProgressFill = document.getElementById("animProgressFill");
+const curTimeEl = document.getElementById("curTime");
+const totalTimeEl = document.getElementById("totalTime");
+const speedSlider = document.getElementById("speedSlider");
+const speedValueEl = document.getElementById("speedValue");
+const btnPlay = document.getElementById("btnPlay");
+const canvas = document.getElementById("animCanvas");
+const ctx = canvas.getContext("2d");
+const dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  // 读父容器 .anim-body 的可用尺寸，不要读 canvas 自己（避免被 style 锁死）
+  const parent = canvas.parentElement;
+  const rect = parent.getBoundingClientRect();
+  // 减去 padding (16*2=32) 和 border
+  const w = Math.max(100, rect.width - 32);
+  const h = Math.max(100, rect.height - 32);
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  // 不设 style.width/height，让 CSS 的 width:100%; height:100% 自适应
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// === 颜色 ===
+const C = {
+  level: "#f0883e", tag: "#58a6ff", thread: "#d2a8ff", time: "#ffa657",
+  msg: "#7ee787", eol: "#8b949e", sep: "#8b949e",
+  warn: "#f85149", ok: "#3fb950", dim: "#8b949e", bright: "#f0f6fc",
+  buffer: "#21262d", bufferLit: "#1f6feb", overflow: "#da3633",
+};
+
+// === 源码渲染 ===
+function renderSource(file, highlightLines) {
+  const lines = SOURCE_FILES[file] || [];
+  sourceMeta.textContent = `${file}:${highlightLines[0]}-${highlightLines[1]}`;
+  const lo = highlightLines[0], hi = highlightLines[1];
+  let html = "";
+  for (const ln of lines) {
+    const cur = ln.n >= lo && ln.n <= hi;
+    html += `<span class="source-line${cur ? " current" : ""}"><span class="ln${cur ? " current-ln" : ""}">${ln.n}</span>${ln.t}</span>\n`;
+  }
+  sourceBody.innerHTML = html;
+  const first = sourceBody.querySelector(".current");
+  if (first) first.scrollIntoView({ block: "center" });
+}
+
+// === 字幕渲染 ===
+function renderNarration(scene) {
+  const html = `<div class="narr-scene-title">${scene.title}</div>` +
+    scene.narration.map(n => `
+      <div class="narr-item${n.warn ? " warn" : ""}" data-t="${n.t}">
+        <div class="narr-time">+${n.t}s</div>
+        <div class="narr-text">${n.text}</div>
+      </div>`).join("");
+  narrBody.innerHTML = html;
+}
+
+function updateActiveNarration(scene, localTime) {
+  const items = narrBody.querySelectorAll(".narr-item");
+  let activeIdx = 0;
+  for (let i = scene.narration.length - 1; i >= 0; i--) {
+    if (localTime >= scene.narration[i].t) { activeIdx = i; break; }
+  }
+  items.forEach((el, i) => el.classList.toggle("active", i === activeIdx));
+  if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+// === Canvas 工具 ===
+function clearCanvas() {
+  const r = canvas.getBoundingClientRect();
+  ctx.fillStyle = "#0a0e14"; ctx.fillRect(0, 0, r.width, r.height);
+}
+function txt(s, x, y, o = {}) {
+  ctx.font = o.font || "13px ui-monospace, 'SF Mono', Menlo, monospace";
+  ctx.fillStyle = o.color || "#c9d1d9";
+  ctx.textAlign = o.align || "left"; ctx.textBaseline = o.baseline || "top";
+  ctx.fillText(s, x, y);
+}
+function rrect(x, y, w, h, r, o = {}) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  if (o.fill) { ctx.fillStyle = o.fill; ctx.fill(); }
+  if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = o.lw || 1; ctx.stroke(); }
+}
+
+// === Scene 1: bufferFill ===
+function drawBufferFill(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("FormatLogEntry → 1024 字节缓冲区", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const steps = [
+    { t: 0.12, text: "[INFO]", color: C.level, label: "FormatLevel" },
+    { t: 0.24, text: "[alloc]", color: C.tag, label: "FormatTags" },
+    { t: 0.36, text: "[tid#787430]", color: C.thread, label: "FormatThread" },
+    { t: 0.48, text: "[0.002s]", color: C.time, label: "FormatTimestamp" },
+    { t: 0.60, text: " ", color: C.sep, label: "空格" },
+    { t: 0.72, text: "FixedBlockPage::Create(3)", color: C.msg, label: "VFormatToSpan" },
+    { t: 0.90, text: "\\n", color: C.eol, label: "行尾" },
+  ];
+  const startY = 50, stepH = 30, gap = 6, labelX = 20, valX = 180;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i], y = startY + i * (stepH + gap);
+    const lit = p >= s.t;
+    txt(s.label, labelX, y + 7, { color: lit ? C.bright : C.dim, font: "12px ui-monospace" });
+    if (lit) {
+      rrect(valX, y, 340, stepH, 4, { fill: s.color + "22", stroke: s.color });
+      txt(s.text, valX + 10, y + 7, { color: s.color, font: "13px ui-monospace" });
+    } else {
+      rrect(valX, y, 340, stepH, 4, { fill: C.buffer, stroke: "#30363d" });
+      txt("···", valX + 10, y + 7, { color: C.dim, font: "13px ui-monospace" });
+    }
+    if (i < steps.length - 1 && lit) txt("↓", valX + 170, y + stepH, { color: C.dim, font: "16px", align: "center" });
+  }
+  if (p >= 0.95) {
+    const y = startY + steps.length * (stepH + gap) + 12;
+    txt("最终输出:", 20, y, { color: C.dim, font: "12px ui-monospace" });
+    rrect(20, y + 18, W - 40, 34, 4, { fill: "#161b22", stroke: C.ok });
+    txt("[INFO][alloc][tid#787430][0.002s] FixedBlockPage::Create(3)", 30, y + 26, { color: C.bright, font: "12px ui-monospace" });
+  }
+}
+
+// === Scene 2: tagConcat ===
+function drawTagConcat(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("FormatTags → [gc,gcScheduler]", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const tags = [
+    { name: "gc", fmt: "[%s", comma: false },
+    { name: "gcScheduler", fmt: ",%s", comma: true },
+  ];
+  const y = 70, startX = 40, blockW = 180;
+  let written = "";
+  for (let i = 0; i < tags.length; i++) {
+    const tp = p * (tags.length + 1) - i;
+    if (tp <= 0) continue;
+    const tag = tags[i], x = startX + i * (blockW + 20);
+    rrect(x, y, blockW, 50, 4, { fill: C.tag + "22", stroke: C.tag });
+    txt(tag.name, x + 12, y + 10, { color: C.tag, font: "14px ui-monospace" });
+    txt(`fmt: "${tag.fmt}"`, x + 12, y + 32, { color: C.dim, font: "11px ui-monospace" });
+    txt(tag.comma ? "↑ 逗号前缀" : "↑ 无逗号", x + blockW - 80, y + 10, { color: tag.comma ? C.warn : C.ok, font: "11px ui-monospace" });
+    written += tag.fmt.replace("%s", tag.name);
+  }
+  if (p >= 0.75) {
+    const x = startX + tags.length * (blockW + 20);
+    rrect(x, y, 50, 50, 4, { fill: C.eol + "22", stroke: C.eol });
+    txt("]", x + 18, y + 14, { color: C.eol, font: "14px ui-monospace" });
+    written += "]";
+  }
+  const ry = 170;
+  txt("结果:", 20, ry, { color: C.dim, font: "12px ui-monospace" });
+  rrect(20, ry + 18, W - 40, 40, 4, { fill: "#161b22", stroke: C.ok });
+  txt(written || "[...", 30, ry + 30, { color: C.bright, font: "14px ui-monospace" });
+  txt("文档 5.11: 双 tag 任一启用即输出 (enabled 的 for 循环)", 20, ry + 70, { color: C.dim, font: "11px ui-monospace" });
+}
+
+// === Scene 3: levelCompare ===
+function drawLevelCompare(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("enabled() → level <= maxLevel", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const levels = [
+    { name: "kNone", val: 0, color: C.dim },
+    { name: "kError", val: 1, color: "#f85149" },
+    { name: "kWarning", val: 2, color: "#d29922" },
+    { name: "kInfo", val: 3, color: "#58a6ff" },
+    { name: "kDebug", val: 4, color: "#3fb950" },
+  ];
+  const barY = 60, barH = 30, barW = (W - 40) / levels.length, startX = 20;
+  txt("Level 枚举 (数值越大越详细):", 20, barY - 18, { color: C.dim, font: "11px ui-monospace" });
+  for (let i = 0; i < levels.length; i++) {
+    const lv = levels[i], x = startX + i * barW;
+    const lit = p > 0.1;
+    rrect(x + 2, barY, barW - 4, barH, 4, { fill: lit ? lv.color + "33" : C.buffer, stroke: lv.color, lw: lit ? 1.5 : 1 });
+    txt(`${lv.name}`, x + 12, barY + 4, { color: lv.color, font: "12px ui-monospace" });
+    txt(`= ${lv.val}`, x + 12, barY + 18, { color: C.dim, font: "11px ui-monospace" });
+  }
+  // 示例比较
+  if (p > 0.3) {
+    const cy = 130;
+    txt("示例: 消息 level=kInfo(3), tag 配置 maxLevel=kInfo(3)", 20, cy, { color: C.bright, font: "12px ui-monospace" });
+    txt("3 <= 3 → true → 输出", 20, cy + 20, { color: C.ok, font: "13px ui-monospace" });
+  }
+  if (p > 0.6) {
+    const cy = 180;
+    txt("示例: 消息 level=kDebug(4), tag 配置 maxLevel=kInfo(3)", 20, cy, { color: C.bright, font: "12px ui-monospace" });
+    txt("4 <= 3 → false → 不输出", 20, cy + 20, { color: C.warn, font: "13px ui-monospace" });
+  }
+  if (p > 0.85) {
+    const cy = 230;
+    txt("多 tag: for 循环，任一满足即 return true", 20, cy, { color: C.bright, font: "12px ui-monospace" });
+    txt("[gc,gcScheduler] 任一启用即输出", 20, cy + 20, { color: C.ok, font: "12px ui-monospace" });
+  }
+}
+
+// === Scene 4: bufferOverflow ===
+function drawBufferOverflow(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width, H = r.height;
+  clearCanvas();
+  txt("std::array<char, 1024> logEntry", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  // 1024 格子可视化 (用 32x32 网格)
+  const cols = 32, rows = 16, cellW = (W - 40) / cols, cellH = 10;
+  const startY = 50;
+  const filled = Math.floor(p * 1.2 * cols * rows); // 模拟溢出
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const idx = row * cols + col;
+      const x = 20 + col * cellW, y = startY + row * (cellH + 1);
+      if (idx < filled) {
+        const overflowed = idx >= 1024;
+        ctx.fillStyle = overflowed ? C.overflow + "44" : C.bufferLit + "66";
+        ctx.fillRect(x, y, cellW - 1, cellH);
+        if (overflowed) {
+          ctx.strokeStyle = C.overflow; ctx.lineWidth = 0.5;
+          ctx.strokeRect(x, y, cellW - 1, cellH);
+        }
+      } else {
+        ctx.strokeStyle = "#21262d"; ctx.lineWidth = 0.5;
+        ctx.strokeRect(x, y, cellW - 1, cellH);
+      }
+    }
+  }
+  // 标尺
+  txt("0", 20, startY - 14, { color: C.dim, font: "10px ui-monospace" });
+  txt("1024 (缓冲区上限)", 20 + cols * cellW - 100, startY - 14, { color: C.warn, font: "10px ui-monospace" });
+  // 警告
+  if (p > 0.8) {
+    const wy = startY + rows * (cellH + 1) + 20;
+    rrect(20, wy, W - 40, 50, 4, { fill: C.warn + "22", stroke: C.warn });
+    txt("⚠ 超长消息被截断，无任何标记!", 30, wy + 8, { color: C.warn, font: "13px ui-monospace" });
+    txt("GCMark=Debug 实测 6442 万行/3.5GB，单条可能被默默截断", 30, wy + 28, { color: "#ffb1ab", font: "11px ui-monospace" });
+  }
+}
+
+// === Scene 5: lazyEval ===
+function drawLazyEval(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("RuntimeLog 宏: 先 enabled() 检查再求值", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const branchY = 60;
+  // 两条分支
+  const left = { x: 20, w: (W - 60) / 2 };
+  const right = { x: 40 + left.w, w: left.w };
+  // 左: 日志关闭
+  rrect(left.x, branchY, left.w, 180, 6, { fill: "#161b22", stroke: C.warn });
+  txt("场景 A: 日志关闭 (maxLevel=kNone)", left.x + 12, branchY + 10, { color: C.warn, font: "12px ui-monospace" });
+  const aSteps = [
+    { t: 0.1, text: "enabled() → false", color: C.warn },
+    { t: 0.3, text: "→ 跳过 Log() 调用", color: C.warn },
+    { t: 0.5, text: "→ format 参数不求值", color: C.warn },
+    { t: 0.7, text: "✗ obj->toString() 不执行", color: C.dim },
+  ];
+  for (let i = 0; i < aSteps.length; i++) {
+    if (p < aSteps[i].t) break;
+    const y = branchY + 40 + i * 30;
+    txt(aSteps[i].text, left.x + 16, y, { color: aSteps[i].color, font: "12px ui-monospace" });
+  }
+  // 右: 日志开启
+  rrect(right.x, branchY, right.w, 180, 6, { fill: "#161b22", stroke: C.ok });
+  txt("场景 B: 日志开启 (maxLevel>=level)", right.x + 12, branchY + 10, { color: C.ok, font: "12px ui-monospace" });
+  const bSteps = [
+    { t: 0.15, text: "enabled() → true", color: C.ok },
+    { t: 0.35, text: "→ 调用 Log()", color: C.ok },
+    { t: 0.55, text: "→ 求值 format 参数", color: C.ok },
+    { t: 0.75, text: "✓ obj->toString() 执行", color: C.bright },
+  ];
+  for (let i = 0; i < bSteps.length; i++) {
+    if (p < bSteps[i].t) break;
+    const y = branchY + 40 + i * 30;
+    txt(bSteps[i].text, right.x + 16, y, { color: bSteps[i].color, font: "12px ui-monospace" });
+  }
+  if (p > 0.9) {
+    txt("→ 性能保证: 关闭的 tag 不产生参数计算开销", 20, 260, { color: C.bright, font: "12px ui-monospace" });
+  }
+}
+
+// === Scene 6: tagLoop ===
+function drawTagLoop(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("OnRuntimeInit: 遍历 12 个 tag 输出启用列表", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const tags = [
+    { name: "logging", lv: 3 }, { name: "rt", lv: 4 }, { name: "gc", lv: 4 },
+    { name: "mm", lv: 4 }, { name: "tls", lv: 4 }, { name: "pause", lv: 4 },
+    { name: "alloc", lv: 4 }, { name: "balancing", lv: 4 }, { name: "barriers", lv: 4 },
+    { name: "gcMark", lv: 4 }, { name: "gcScheduler", lv: 4 }, { name: "memoryDump", lv: 4 },
+  ];
+  const cols = 6, cellW = (W - 40) / cols, cellH = 50, startY = 50;
+  const litCount = Math.floor(p * tags.length);
+  for (let i = 0; i < tags.length; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = 20 + col * cellW, y = startY + row * (cellH + 8);
+    const lit = i < litCount;
+    const enabled = tags[i].lv > 0;
+    rrect(x + 2, y, cellW - 4, cellH, 4, {
+      fill: lit ? (enabled ? C.ok + "22" : C.dim + "22") : C.buffer,
+      stroke: lit ? (enabled ? C.ok : C.dim) : "#30363d",
+      lw: lit ? 1.5 : 1
+    });
+    txt(tags[i].name, x + 8, y + 6, { color: lit ? (enabled ? C.ok : C.dim) : C.dim, font: "11px ui-monospace" });
+    if (lit) {
+      txt(enabled ? `= ${["NONE","ERROR","WARN","INFO","DEBUG"][tags[i].lv]}` : "(None)", x + 8, y + 24, {
+        color: enabled ? C.bright : C.dim, font: "10px ui-monospace"
+      });
+    }
+  }
+  if (p > 0.95) {
+    const y = startY + 2 * (cellH + 8) + 20;
+    txt("输出:", 20, y, { color: C.dim, font: "12px ui-monospace" });
+    rrect(20, y + 16, W - 40, 34, 4, { fill: "#161b22", stroke: C.ok });
+    txt("Logging enabled for: logging = INFO, rt = DEBUG, gc = DEBUG, ...", 30, y + 24, { color: C.bright, font: "11px ui-monospace" });
+  }
+}
+
+// === Scene 7: callChain ===
+function drawCallChain(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("tid 的来源: 跨文件调用链", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const chain = [
+    { t: 0.05, file: "Logging.cpp:133", fn: "VLog()", detail: "auto threadId = konan::currentThreadId();", color: C.tag },
+    { t: 0.3, file: "↓ 调用", fn: "konan::currentThreadId()", detail: "跨文件跳到 Porting.cpp", color: C.dim },
+    { t: 0.5, file: "Porting.cpp:267", fn: "currentThreadId()", detail: "#elif KONAN_LINUX || KONAN_OHOS", color: C.thread },
+    { t: 0.7, file: "Porting.cpp:262", fn: "gettid()", detail: "自定义实现", color: C.time },
+    { t: 0.9, file: "Porting.cpp:263", fn: "syscall(__NR_gettid)", detail: "系统调用直达内核", color: C.msg },
+  ];
+  const startY = 50, stepH = 50, gap = 8;
+  for (let i = 0; i < chain.length; i++) {
+    const c = chain[i], y = startY + i * (stepH + gap);
+    if (p < c.t) break;
+    rrect(20, y, W - 40, stepH, 4, { fill: c.color + "22", stroke: c.color });
+    txt(c.file, 30, y + 6, { color: c.color, font: "11px ui-monospace" });
+    txt(c.fn, 30, y + 22, { color: C.bright, font: "13px ui-monospace" });
+    txt(c.detail, W - 250, y + 14, { color: C.dim, font: "11px ui-monospace", align: "left" });
+    if (i < chain.length - 1 && p > chain[i + 1].t - 0.1) {
+      txt("↓", W / 2 - 8, y + stepH, { color: C.dim, font: "14px", align: "center" });
+    }
+  }
+  if (p > 0.95) {
+    const y = startY + chain.length * (stepH + gap) + 10;
+    txt("注释: \"glibc 2.30 的 gettid 太新了\" → 自己用 syscall 实现", 20, y, { color: C.warn, font: "11px ui-monospace" });
+  }
+}
+
+// === Scene 8: clockInit ===
+function drawClockInit(p) {
+  const r = canvas.getBoundingClientRect(), W = r.width;
+  clearCanvas();
+  txt("时间零点: steady_clock 懒初始化", 20, 16, { color: C.dim, font: "12px ui-monospace" });
+  const cy = 80;
+  // 时间轴
+  txt("t = 0.000s (零点)", 20, cy, { color: C.warn, font: "12px ui-monospace" });
+  txt("│", 22, cy + 14, { color: C.warn, font: "14px" });
+  // 后续日志调用
+  const calls = [
+    { t: 0.2, time: "0.002s", text: "首条业务日志 (VLog 首次调用)" },
+    { t: 0.4, time: "0.113s", text: "调度器日志" },
+    { t: 0.6, time: "7.346s", text: "GC Epoch #1 开始" },
+    { t: 0.8, time: "12.978s", text: "GC Epoch #1 结束" },
+  ];
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i], y = cy + 40 + i * 40;
+    if (p < c.t) break;
+    txt("├─", 20, y, { color: C.dim, font: "12px" });
+    txt(`[${c.time}]`, 44, y, { color: C.time, font: "12px ui-monospace" });
+    txt(c.text, 130, y, { color: C.bright, font: "12px ui-monospace" });
+  }
+  if (p > 0.9) {
+    const y = cy + 40 + calls.length * 40 + 20;
+    rrect(20, y, W - 40, 60, 4, { fill: C.ok + "22", stroke: C.ok });
+    txt("关键: initialTimestamp 在首次 VLog 时才取值", 30, y + 8, { color: C.ok, font: "12px ui-monospace" });
+    txt("→ OnRuntimeInit 是首次调用，所以它的时间必为 0.000s", 30, y + 28, { color: C.bright, font: "11px ui-monospace" });
+  }
+}
+
+// === 绘制分发 ===
+const DRAWERS = {
+  bufferFill: drawBufferFill,
+  tagConcat: drawTagConcat,
+  levelCompare: drawLevelCompare,
+  bufferOverflow: drawBufferOverflow,
+  lazyEval: drawLazyEval,
+  tagLoop: drawTagLoop,
+  callChain: drawCallChain,
+  clockInit: drawClockInit,
+};
+
+// === 场景查找 ===
+function getSceneAt(time) {
+  for (let i = 0; i < TIMELINE.scenes.length; i++) {
+    const s = TIMELINE.scenes[i];
+    if (time >= s.start && time < s.start + s.duration) return { scene: s, index: i };
+  }
+  const last = TIMELINE.scenes[TIMELINE.scenes.length - 1];
+  return { scene: last, index: TIMELINE.scenes.length - 1 };
+}
+
+// === 渲染当前帧 ===
+function render() {
+  const { scene, index } = getSceneAt(currentTime);
+  const localProgress = Math.min(1, (currentTime - scene.start) / scene.duration);
+  // 场景切换
+  if (index !== currentSceneIndex) {
+    currentSceneIndex = index;
+    hideToasts();
+    renderSource(scene.source.file, scene.source.lines);
+    renderNarration(scene);
+    transitionScene(() => {});
+    sceneNumEl.textContent = index + 1;
+    sceneTitleEl.textContent = scene.title;
+    animSceneTitle.innerHTML = `Scene ${index + 1} · <b>${scene.title}</b>`;
+    animMeta.textContent = scene.anim.type;
+    // Scene 4 警告阶段触发 Toast
+    if (scene.id === "s4" && localProgress > 0.7) {
+      showToast("检测到高内存压力", "GCMark=Debug 实测可产生 <code>6442 万行 / 3.5GB</code> 日志<br>单条消息超过 1024 字节会被默默截断", 6000);
+    }
+  }
+  updateActiveNarration(scene, currentTime - scene.start);
+  // Scene 4 警告阶段触发 Toast (不限于场景切换那一刻)
+  if (scene.id === "s4" && localProgress > 0.7 && localProgress < 0.75) {
+    if (!toastContainer.querySelector(".toast")) {
+      showToast("检测到高内存压力", "GCMark=Debug 实测可产生 <code>6442 万行 / 3.5GB</code> 日志<br>单条消息超过 1024 字节会被默默截断", 6000);
+    }
+  }
+  // 动画
+  const drawer = DRAWERS[scene.anim.type];
+  if (drawer) drawer(localProgress);
+  // 进度条
+  progressFill.style.width = `${(currentTime / TOTAL_DURATION) * 100}%`;
+  animProgressFill.style.width = `${localProgress * 100}%`;
+  curTimeEl.textContent = `${currentTime.toFixed(1)}s`;
+  // 场景标记
+  const markers = progressMarkers.children;
+  for (let i = 0; i < markers.length; i++) {
+    markers[i].classList.toggle("active", i === index);
+  }
+}
+
+// === 主循环 ===
+function tick(now) {
+  if (!isPlaying) return;
+  if (!lastFrameTime) lastFrameTime = now;
+  const dt = (now - lastFrameTime) / 1000;
+  lastFrameTime = now;
+  currentTime += dt * speed;
+  if (currentTime >= TOTAL_DURATION) {
+    currentTime = TOTAL_DURATION;
+    isPlaying = false;
+    btnPlay.textContent = "▶";
+  }
+  render();
+  if (isPlaying) requestAnimationFrame(tick);
+}
+
+// === Toast 系统 ===
+const toastContainer = document.getElementById("toastContainer");
+function showToast(title, body, duration = 4000) {
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.innerHTML = `<div class="toast-title">${title}</div><div class="toast-body">${body}</div>`;
+  toastContainer.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+function hideToasts() {
+  toastContainer.querySelectorAll(".toast").forEach(t => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 300);
+  });
+}
+
+// === Scene 切换过渡 ===
+let transitionTimeout = null;
+function transitionScene(callback) {
+  if (transitionTimeout) clearTimeout(transitionTimeout);
+  document.querySelectorAll(".panel").forEach(p => p.classList.add("transitioning"));
+  transitionTimeout = setTimeout(() => {
+    callback();
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("transitioning"));
+    transitionTimeout = null;
+  }, 300);
+}
+
+// === 控件事件 ===
+btnPlay.addEventListener("click", () => {
+  if (currentTime >= TOTAL_DURATION) currentTime = 0;
+  isPlaying = !isPlaying;
+  btnPlay.textContent = isPlaying ? "⏸" : "▶";
+  if (isPlaying) {
+    lastFrameTime = 0;
+    requestAnimationFrame(tick);
+  }
+});
+
+document.getElementById("btnPrev").addEventListener("click", () => {
+  const { scene } = getSceneAt(currentTime);
+  const prevScene = TIMELINE.scenes[Math.max(0, currentSceneIndex - 1)];
+  currentTime = prevScene ? prevScene.start : 0;
+  if (currentTime === scene.start) currentTime = 0;
+  render();
+});
+
+document.getElementById("btnNext").addEventListener("click", () => {
+  const nextScene = TIMELINE.scenes[Math.min(TIMELINE.scenes.length - 1, currentSceneIndex + 1)];
+  currentTime = nextScene.start;
+  render();
+});
+
+document.getElementById("btnStepFwd").addEventListener("click", () => {
+  const { scene } = getSceneAt(currentTime);
+  const localTime = currentTime - scene.start;
+  const nextKf = scene.keyframes.find(k => k > localTime + 0.01);
+  if (nextKf !== undefined) {
+    currentTime = scene.start + nextKf;
+  } else {
+    const nextScene = TIMELINE.scenes[Math.min(TIMELINE.scenes.length - 1, currentSceneIndex + 1)];
+    currentTime = nextScene.start;
+  }
+  render();
+});
+
+document.getElementById("btnStepBack").addEventListener("click", () => {
+  const { scene } = getSceneAt(currentTime);
+  const localTime = currentTime - scene.start;
+  const prevKfs = scene.keyframes.filter(k => k < localTime - 0.01);
+  const prevKf = prevKfs.length ? prevKfs[prevKfs.length - 1] : 0;
+  if (prevKfs.length > 0) {
+    currentTime = scene.start + prevKf;
+  } else {
+    const prevScene = TIMELINE.scenes[Math.max(0, currentSceneIndex - 1)];
+    currentTime = prevScene.start + (prevScene ? prevScene.duration : 0);
+  }
+  render();
+});
+
+speedSlider.addEventListener("input", (e) => {
+  speed = parseFloat(e.target.value);
+  speedValueEl.textContent = `${speed.toFixed(2)}x`;
+});
+
+document.getElementById("sceneProgress").addEventListener("click", (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const ratio = (e.clientX - rect.left) / rect.width;
+  currentTime = ratio * TOTAL_DURATION;
+  render();
+});
+
+// === 键盘快捷键 ===
+document.addEventListener("keydown", (e) => {
+  if (document.getElementById("introOverlay").classList.contains("hidden") === false) {
+    if (e.code === "Space" || e.code === "Enter") { closeIntro(); e.preventDefault(); }
+    return;
+  }
+  switch (e.code) {
+    case "Space":
+      e.preventDefault();
+      btnPlay.click();
+      break;
+    case "ArrowRight":
+      if (e.shiftKey) document.getElementById("btnNext").click();
+      else document.getElementById("btnStepFwd").click();
+      e.preventDefault();
+      break;
+    case "ArrowLeft":
+      if (e.shiftKey) document.getElementById("btnPrev").click();
+      else document.getElementById("btnStepBack").click();
+      e.preventDefault();
+      break;
+  }
+});
+
+// === 开场覆盖层交互 ===
+function closeIntro() {
+  const intro = document.getElementById("introOverlay");
+  if (intro.classList.contains("hidden")) return;
+  intro.classList.add("fading");
+  setTimeout(() => {
+    intro.classList.add("hidden");
+    resizeCanvas();
+    render();
+  }, 600);
+}
+document.getElementById("introOverlay").addEventListener("click", closeIntro);
+
+// === 三区分隔条拖拽 ===
+function setupDivider(divider, leftPanel, rightPanel, mainEl) {
+  let dragging = false;
+  divider.addEventListener("mousedown", (e) => {
+    dragging = true;
+    divider.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const mainRect = mainEl.getBoundingClientRect();
+    const leftRect = leftPanel.getBoundingClientRect();
+    const rightRect = rightPanel.getBoundingClientRect();
+    const total = leftRect.width + rightRect.width;
+    const newLeft = Math.max(200, Math.min(total - 200, e.clientX - leftRect.left));
+    leftPanel.style.flex = `0 0 ${newLeft}px`;
+    rightPanel.style.flex = "1 1 0";
+    // 任何一条分隔条拖动都会影响动画区(中间) 的尺寸，统一调用 resizeCanvas
+    resizeCanvas();
+    render();
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
+}
+
+function initDividers() {
+  const main = document.querySelector("main");
+  const panels = main.querySelectorAll(".panel");
+  const dividers = main.querySelectorAll(".panel-divider");
+  setupDivider(dividers[0], panels[0], panels[1], main);
+  setupDivider(dividers[1], panels[1], panels[2], main);
+}
+
+// === 初始化 ===
+function init() {
+  totalTimeEl.textContent = `${TOTAL_DURATION.toFixed(1)}s`;
+  // 场景标记
+  let markersHtml = "";
+  for (let i = 0; i < TIMELINE.scenes.length; i++) {
+    const s = TIMELINE.scenes[i];
+    const pct = (s.start / TOTAL_DURATION) * 100;
+    markersHtml += `<div class="scene-marker" style="left:${pct}%"></div>`;
+  }
+  progressMarkers.innerHTML = markersHtml;
+  resizeCanvas();
+  window.addEventListener("resize", () => { resizeCanvas(); render(); });
+  initDividers();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
