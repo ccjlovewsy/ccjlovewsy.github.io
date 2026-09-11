@@ -1,3 +1,5 @@
+English | [简体中文](README.zh-CN.md)
+
 # Chirpy Starter
 
 [![Gem Version](https://img.shields.io/gem/v/jekyll-theme-chirpy)][gem]&nbsp;
