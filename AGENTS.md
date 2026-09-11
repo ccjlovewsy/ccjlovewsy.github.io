@@ -28,6 +28,24 @@
 6. 验证上线：`curl -sS https://ccjlovewsy.github.io/posts/<slug>/` 应 HTTP 200 且含文章标题。
 7. 给用户最终报告：访问地址 + 处理记录（做了哪些适配）。
 
+## 部署验证四道关（2026-09-11 起，所有部署必过）
+
+> 教训：只测「构建产物」和「第一次请求」是不够的——SW 缓存类 bug 只有第 8 步（运行时、跨加载）能抓；agent-result-grill 审查循环管「实现≠规格」，抓不住运行时状态 bug，两者不可互替。
+
+8. **运行时冒烟测试（必做）**：用 chrome-devtools / playwright MCP 打开线上站点实测：
+   - 关键页 HTTP 200 且内容正确（新文章页/首页/受影响的页签）
+   - **刷新 ≥ 2 次**并断言关键元素稳定（防缓存类 bug，参考 2026-09-11「SW 导致页签刷新消失」事故）
+   - browser console 零报错
+   - 状态断言：`navigator.serviceWorker.getRegistrations()` 应为 0、`caches.keys()` 不含 `chirpy-*`（PWA 已禁用；若将来重新启用，需先重定此基线）
+9. **静态全站扫描（必做）**：`bundle exec htmlproofer _site --disable-external`
+   - 实测 0.23s / 30 文件，零成本
+   - 外链检测默认关闭（GFW 环境会误报被墙站点）；需要查外链时单独跑不带 `--disable-external` 的完整模式并人工甄别结果
+10. **纪律约束（贯穿 1-9 步）**：
+    - `verification-before-completion`：先跑验证拿证据，再宣布完成；没跑过的一律说「未验证」
+    - `systematic-debugging`：遇 bug 先复现、定位根因，再动手改
+11. **性能/可访问性回归（重大改动时跑）**：`npx @lhci/cli autorun --collect.staticDistDir=_site`
+    - Lighthouse CI，性能分明显回落即回滚排查；日常小改动可跳过
+
 ## 常用命令
 
 ```bash
