@@ -1,7 +1,7 @@
 ---
 title: Logging 源码精读 · 交互式可视化
 date: 2026-08-21 09:00:00 +0800
-categories: [源码精读]
+categories: [Kotlin/Native, 源码精读]
 tags: [kotlin-native, logging, 可视化, 交互页面]
 ---
 
