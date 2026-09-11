@@ -148,7 +148,7 @@ assets:
     env: # [development | production]
 
 pwa:
-  enabled: true # The option for PWA feature (installable)
+  enabled: false # The option for PWA feature (installable)
   cache:
     enabled: false # The option for PWA offline cache
     # Paths defined here will be excluded from the PWA cache.
@@ -220,6 +220,7 @@ exclude:
   - "*.gemspec"
   - docs
   - tools
+  - agent-result-grill
   - README.md
   - LICENSE
   - purgecss.js
