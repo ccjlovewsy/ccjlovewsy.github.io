@@ -131,8 +131,8 @@ comments:
   giscus:
     repo: ccjlovewsy/ccjlovewsy.github.io
     repo_id: R_kgDOT2DfOA
-    category: Announcements
-    category_id: DIC_kwDOT2DfOM4DFXJ8
+    category: General
+    category_id: DIC_kwDOT2DfOM4DFXJ9
     mapping: pathname
     strict: 0
     input_position: bottom
