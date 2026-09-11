@@ -56,19 +56,20 @@ gh api repos/ccjlovewsy/ccjlovewsy.github.io/pages
 
 **自 2026-08-12 起，main 分支 push 不再自动部署**。部署只在以下情况触发：
 
-1. 打 tag（格式 `v*`，如 `v1.0`、`v1.1`）：`git tag v1.0 && git push origin v1.0`
-2. 手动触发：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
-3. Actions 页面点 "Run workflow"
+1. 手动触发（推荐，2026-08-21 实测可用）：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
+2. Actions 页面点 "Run workflow"
+3. ~~打 tag（`v*`）~~：workflow 虽声明了 tag 触发，但 **tag run 会被 github-pages 环境保护规则拒绝**（2026-08-21 实测 v1.0 部署失败："Tag not allowed to deploy"）。除非在 GitHub Settings → Environments → github-pages 放行 tag，否则不要走 tag 部署
 
 ### 三种发布场景
 
-**场景 1：私人文章（只提交，不部署，别人看不到）**
+**场景 1：私人文章（放 `_drafts/`，永不构建上线，别人看不到）**
 ```bash
-# 文章放 _posts/，加 front matter
+# 文章放 _drafts/（Jekyll 不构建该目录，任何部署都不会带上它）
+# 注意：不要放 _posts/！_posts/ 里的文章会在下次部署时上线
 git add -A && git commit -m "私人草稿: <标题>"
 git push origin main
-# main 分支 push 不触发部署，线上站点不变
-# 自己用 serve.sh 本地预览
+# 本地预览草稿要加 --drafts 参数（serve.sh 不带参数看不到草稿）：
+bundle exec jekyll serve --drafts
 ```
 
 **场景 2：公开发布新文章（部署到线上）**
@@ -76,24 +77,25 @@ git push origin main
 # 1. 先提交到 main
 git add -A && git commit -m "发布: <标题>"
 git push origin main
-# 2. 打 tag 触发部署
-git tag v1.1   # 版本号递增
-git push origin v1.1
+# 2. 手动触发部署
+gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main
 # 3. 监控部署
 gh run list --repo ccjlovewsy/ccjlovewsy.github.io --limit 1
 ```
 
 **场景 3：把多篇文章一起部署**
 ```bash
-# 多次 main 提交都先存着不部署，等积累够了打一次 tag
+# 多次 main 提交都先存着不部署，等积累够了手动触发一次
 git push origin main
 # ...继续写...
 git push origin main
 # 准备发布了
-git tag v1.2 && git push origin v1.2
+gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main
 ```
 
 ### Tag 版本号约定
+
+> 2026-08-21 起 tag 部署不可用（环境保护规则拒绝），tag 仅作版本标记用，不用于触发部署。
 
 - `v1.0`、`v1.1`、`v1.2` ... 递增即可
 - 查看已有 tag：`git tag -l`

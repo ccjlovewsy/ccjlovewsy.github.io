@@ -65,14 +65,14 @@ token scopes：`gist, read:org, repo`。
 - 部署工作流：`.github/workflows/pages-deploy.yml`（Chirpy 自带）
 - HTTPS 强制：已开启
 
-### ⚠️ 部署触发规则（2026-08-12 改造后）
+### ⚠️ 部署触发规则（2026-08-21 更新）
 
-**main 分支 push 不再自动部署**。部署触发条件已改为：
-- **打 tag**（`v*` 格式）：`git tag v1.0 && git push origin v1.0`
-- **手动触发**：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
+**main 分支 push 不再自动部署**。部署触发条件：
+- **手动触发（推荐）**：`gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main`
 - **Actions 页面** "Run workflow"
+- ~~打 tag（`v*`）~~：workflow 声明了 tag 触发，但 **tag run 会被 github-pages 环境保护规则拒绝**（2026-08-21 实测 v1.0 部署失败）。除非在 GitHub Settings → Environments → github-pages 的 Deployment branches 放行 tag，否则不要走 tag 部署
 
-这样设计的目的是支持「私人文章」：提交到 main 不部署，线上站点保持不变，自己用 `serve.sh` 本地预览。要公开发布时再打 tag。
+这样设计的目的是支持「私人文章」：提交到 main 不部署，线上站点保持不变。**私人文章必须放 `_drafts/`**（Jekyll 不构建该目录）——放 `_posts/` 的文章会在任何一次部署时全部上线（2026-08-21 的 private-draft-test 就因此泄漏上线过）。
 
 ```bash
 # 查 Pages 配置
@@ -149,19 +149,19 @@ exec bundle exec jekyll serve
 
 ### 发布流程
 
-#### 场景 1：私人文章（只提交不部署，别人看不到）
+#### 场景 1：私人文章（放 `_drafts/`，永不构建上线，别人看不到）
 
 ```bash
 cd ~/ccjlovewsy.github.io
 
-# 写文章到 _posts/（加完整 front matter）
-# main push 不会触发部署
+# 写文章到 _drafts/（Jekyll 不构建该目录，任何部署都不会带上它）
+# 注意：不要放 _posts/！
 git add -A
 git commit -m "私人草稿: <标题>"
 git push origin main
 
-# 自己本地预览
-~/ccjlovewsy.github.io/serve.sh   # http://127.0.0.1:4000
+# 本地预览草稿（必须加 --drafts 参数，serve.sh 不带参数看不到草稿）
+bundle exec jekyll serve --drafts   # http://127.0.0.1:4000
 ```
 
 #### 场景 2：公开发布（部署到线上）
@@ -178,9 +178,8 @@ git add -A
 git commit -m "发布: <标题>"
 git push origin main
 
-# 3. 打 tag 触发部署（tag 号递增）
-git tag v1.1
-git push origin v1.1
+# 3. 手动触发部署（tag 部署已被环境保护规则禁用）
+gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main
 
 # 4. 监控部署（约 1~2 分钟）
 export PATH="/opt/homebrew/bin:$PATH"
@@ -196,8 +195,8 @@ gh run list --limit 1
 git push origin main   # 不部署
 # ...继续写...
 git push origin main   # 不部署
-# 准备一起发布了
-git tag v1.2 && git push origin v1.2   # 一次性部署所有累积的文章
+# 准备一起发布了，手动触发一次部署即可带上所有累积文章
+gh workflow run pages-deploy.yml --repo ccjlovewsy/ccjlovewsy.github.io --ref main
 ```
 
 ### 常用 gh 命令
